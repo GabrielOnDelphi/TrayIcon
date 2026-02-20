@@ -1,44 +1,30 @@
 {*****************************************************************}
-{ This is a component for placing icons in the notification area  }
-{ of the Windows taskbar (aka. the traybar).                      }
+{ A component for placing icons in the notification area  of the Windows taskbar (aka. the traybar).                      }
 {                                                                 }
 { The component is freeware. Feel free to use and improve it.     }
-{ I would be pleased to hear what you think.                      }
-{                                                                 }
-{ Troels Jakobsen - troels.jakobsen@gmail.com                     }
-{ Copyright (c) 2006                                              }
-{                                                                 }
+{ Troels Jakobsen - troels.jakobsen@gmail.com Copyright (c) 2006  }
 { Portions by Jouni Airaksinen - mintus@codefield.com             }
 {*****************************************************************}
 
 UNIT CoolTrayIcon;
 { --------------------------------------------------------------------------------------------------
-    Places app's icon in the systray
-    v4.4.4
-    Sep 04 2009
 
-	Updated 10.2024 (LightSaber)
 	
 	Source:
      https://github.com/coolshou/CoolTrayIcon
-     http://www.songbeamer.com/delphi/
-     Last download: 10.2024
 
-	License:
-      The component is freeware.
-      Troels Jakobsen - troels.jakobsen@gmail.com   Copyright (c) 2006.
-      Portions by Jouni Airaksinen - mintus@codefield.com
 
 
     Code updates 01.2023
     by GabrielMoraru.com
 
-       Brought up to date for Delphi 10.4 and Delphi 11
+       Brought up to date for Delphi 13
        Code cleanup
        Reformatting
        Safer code
        Fixed some issue
        Added two extra functions
+	   Removed code for Win NT
        Better documentation about how to use the components
        Let user know if MainFormOnTaskbar is True.
 
@@ -62,12 +48,7 @@ UNIT CoolTrayIcon;
 
   -------------------------------------------------------------------------------------------------- }
 
-// {$T-}  // Use untyped pointers as we override TNotifyIconData with TNotifyIconDataEx
 {$DebugInfo OFF}
-
-{$ifdef win64}
-  Mesage: 'DOES NOT WORK ON WIN64 Because of TSimpleTimer -> which could be eliminated!'
-{$endif}
 
 INTERFACE
 
@@ -107,9 +88,6 @@ TYPE
   TimeoutOrVersion: TTimeoutOrVersion;
   szInfoTitle: array [0 .. 63] of WideChar;
   dwInfoFlags: DWORD;
-{$IFDEF _WIN32_IE_600}
-  guidItem: TGUID; // Reserved for WinXP; define _WIN32_IE_600 if needed
-{$ENDIF _WIN32_IE_600}
  end;
 
 
@@ -178,9 +156,6 @@ TYPE
    procedure SetWantEnterExitEvents (Value: Boolean);
    procedure SetBehavior            (Value: TBehavior);
    procedure IconChanged            (Sender: TObject);
-{$IFDEF WINNT_SERVICE_HACK}
-   function IsWinNT: Boolean;
-{$ENDIF}
    // Hook methods
    function HookAppProc(var Msg: TMessage): Boolean;
    procedure HookForm;
@@ -322,10 +297,8 @@ TYPE
 
 VAR
  TrayIconHandler: TTrayIconHandler = nil;
- {$IFDEF WINNT_SERVICE_HACK}
-  WinNT: Boolean      = False; // For Win NT
-  HComCtl32: Cardinal = $7FFFFFFF; // For Win NT
- {$ENDIF}
+ IconRegistry: TList = nil;      // Maps sequential IDs to TCoolTrayIcon instances
+ NextIconID: Cardinal = 0;       // Sequential counter for 64-bit safe icon IDs
  WM_TASKBARCREATED: Cardinal;
  SHELL_VERSION: Integer;
 
@@ -369,9 +342,8 @@ end;
   The method fires the appropriate event methods like OnClick and OnMouseMove. }
 
 { The message always goes through the container, TrayIconHandler.
-  Msg.wParam contains the ID of the TCoolTrayIcon instance, which we stored
-  as the object pointer Self in the TCoolTrayIcon constructor. We therefore
-  cast wParam to a TCoolTrayIcon instance. }
+  Msg.wParam contains the sequential ID of the TCoolTrayIcon instance.
+  We look it up via FindCoolTrayIcon. }
 
 procedure TTrayIconHandler.HandleIconMessage(var Msg: TMessage);
 
@@ -385,150 +357,147 @@ procedure TTrayIconHandler.HandleIconMessage(var Msg: TMessage);
  end;
 
 var
+ Icon: TCoolTrayIcon;
  Pt: TPoint;
  Shift: TShiftState;
  I: Integer;
  M: TMenuItem;
-{$IFDEF WINNT_SERVICE_HACK}
- InitComCtl32: procedure;
-{$ENDIF}
 begin
  if Msg.Msg = WM_TRAYNOTIFY then
   // Take action if a message from the tray icon comes through
   begin
-{$WARNINGS OFF}
-   with TCoolTrayIcon(Msg.wParam) do // Cast to a TCoolTrayIcon instance
-{$WARNINGS ON}
-    begin
-     case Msg.lParam of
+   Icon := FindCoolTrayIcon(Msg.wParam);
+   if Icon = nil then Exit;
+
+   case Msg.lParam of
 
       WM_MOUSEMOVE:
-       if FEnabled then
+       if Icon.FEnabled then
         begin
          // MouseEnter event
-         if FWantEnterExitEvents then
-          if FDidExit then
+         if Icon.FWantEnterExitEvents then
+          if Icon.FDidExit then
            begin
-            MouseEnter;
-            FDidExit := False;
+            Icon.MouseEnter;
+            Icon.FDidExit := False;
            end;
          // MouseMove event
          Shift := ShiftState;
          GetCursorPos(Pt);
-         MouseMove(Shift, Pt.X, Pt.Y);
-         LastMoveX := Pt.X;
-         LastMoveY := Pt.Y;
+         Icon.MouseMove(Shift, Pt.X, Pt.Y);
+         Icon.LastMoveX := Pt.X;
+         Icon.LastMoveY := Pt.Y;
         end;
 
       WM_LBUTTONDOWN:
-       if FEnabled then
+       if Icon.FEnabled then
         begin
          { If we have no OnDblClick event, fire the Click event immediately.
            Otherwise start a timer and wait for a short while to see if user
            clicks again. If he does click again inside this period we have
            a double click in stead of a click. }
-         if Assigned(FOnDblClick) then
+         if Assigned(Icon.FOnDblClick) then
           begin
-           ClickTimer.Interval := GetDoubleClickTime;
-           ClickTimer.Enabled := True;
+           Icon.ClickTimer.Interval := GetDoubleClickTime;
+           Icon.ClickTimer.Enabled := True;
           end;
          Shift := ShiftState + [ssLeft];
          GetCursorPos(Pt);
-         MouseDown(mbLeft, Shift, Pt.X, Pt.Y);
-         FClickStart := True;
-         if FLeftPopup then
-          if (Assigned(FPopupMenu)) and (FPopupMenu.AutoPopup) then
+         Icon.MouseDown(mbLeft, Shift, Pt.X, Pt.Y);
+         Icon.FClickStart := True;
+         if Icon.FLeftPopup then
+          if (Assigned(Icon.FPopupMenu)) and (Icon.FPopupMenu.AutoPopup) then
            begin
-            SetForegroundWindow(TrayIconHandler.FHandle); // So menu closes when used in a DLL
-            PopupAtCursor;
+            SetForegroundWindow(TrayIconHandler.FHandle);
+            Icon.PopupAtCursor;
            end;
         end;
 
       WM_RBUTTONDOWN:
-       if FEnabled then
+       if Icon.FEnabled then
         begin
          Shift := ShiftState + [ssRight];
          GetCursorPos(Pt);
-         MouseDown(mbRight, Shift, Pt.X, Pt.Y);
-         if (Assigned(FPopupMenu)) and (FPopupMenu.AutoPopup) then
+         Icon.MouseDown(mbRight, Shift, Pt.X, Pt.Y);
+         if (Assigned(Icon.FPopupMenu)) and (Icon.FPopupMenu.AutoPopup) then
           begin
-           SetForegroundWindow(TrayIconHandler.FHandle); // So menu closes when used in a DLL
-           PopupAtCursor;
+           SetForegroundWindow(TrayIconHandler.FHandle);
+           Icon.PopupAtCursor;
           end;
         end;
 
       WM_MBUTTONDOWN:
-       if FEnabled then
+       if Icon.FEnabled then
         begin
          Shift := ShiftState + [ssMiddle];
          GetCursorPos(Pt);
-         MouseDown(mbMiddle, Shift, Pt.X, Pt.Y);
+         Icon.MouseDown(mbMiddle, Shift, Pt.X, Pt.Y);
         end;
 
       WM_LBUTTONUP:
-       if FEnabled then
+       if Icon.FEnabled then
         begin
          Shift := ShiftState + [ssLeft];
          GetCursorPos(Pt);
 
-         if FClickStart then // Then WM_LBUTTONDOWN was called before
-          FClickReady := True;
+         if Icon.FClickStart then // Then WM_LBUTTONDOWN was called before
+          Icon.FClickReady := True;
 
-         if FClickStart and (not ClickTimer.Enabled) then
+         if Icon.FClickStart and (not Icon.ClickTimer.Enabled) then
           begin
            { At this point we know a mousedown occured, and the dblclick timer
              timed out. We have a delayed click. }
-           FClickStart := False;
-           FClickReady := False;
-           Click; // We have a click
+           Icon.FClickStart := False;
+           Icon.FClickReady := False;
+           Icon.Click; // We have a click
           end;
 
-         FClickStart := False;
+         Icon.FClickStart := False;
 
-         MouseUp(mbLeft, Shift, Pt.X, Pt.Y);
+         Icon.MouseUp(mbLeft, Shift, Pt.X, Pt.Y);
         end;
 
       WM_RBUTTONUP:
-       if FBehavior = bhWin95 then
-        if FEnabled then
+       if Icon.FBehavior = bhWin95 then
+        if Icon.FEnabled then
          begin
           Shift := ShiftState + [ssRight];
           GetCursorPos(Pt);
-          MouseUp(mbRight, Shift, Pt.X, Pt.Y);
+          Icon.MouseUp(mbRight, Shift, Pt.X, Pt.Y);
          end;
 
       WM_CONTEXTMENU, NIN_SELECT, NIN_KEYSELECT:
-       if FBehavior = bhWin2000 then
-        if FEnabled then
+       if Icon.FBehavior = bhWin2000 then
+        if Icon.FEnabled then
          begin
           Shift := ShiftState + [ssRight];
           GetCursorPos(Pt);
-          MouseUp(mbRight, Shift, Pt.X, Pt.Y);
+          Icon.MouseUp(mbRight, Shift, Pt.X, Pt.Y);
          end;
 
       WM_MBUTTONUP:
-       if FEnabled then
+       if Icon.FEnabled then
         begin
          Shift := ShiftState + [ssMiddle];
          GetCursorPos(Pt);
-         MouseUp(mbMiddle, Shift, Pt.X, Pt.Y);
+         Icon.MouseUp(mbMiddle, Shift, Pt.X, Pt.Y);
         end;
 
       WM_LBUTTONDBLCLK:
-       if FEnabled then
+       if Icon.FEnabled then
         begin
-         FClickReady := False;
-         IsDblClick := True;
-         DblClick;
+         Icon.FClickReady := False;
+         Icon.IsDblClick := True;
+         Icon.DblClick;
          { Handle default menu items. But only if LeftPopup is false, or it
            will conflict with the popupmenu when it is called by a click event. }
          M := nil;
-         if Assigned(FPopupMenu) then
-          if (FPopupMenu.AutoPopup) and (not FLeftPopup) then
-           for I := PopupMenu.Items.Count - 1 downto 0 do
+         if Assigned(Icon.FPopupMenu) then
+          if (Icon.FPopupMenu.AutoPopup) and (not Icon.FLeftPopup) then
+           for I := Icon.FPopupMenu.Items.Count - 1 downto 0 do
             begin
-             if PopupMenu.Items[I].Default then
-              M := PopupMenu.Items[I];
+             if Icon.FPopupMenu.Items[I].Default then
+              M := Icon.FPopupMenu.Items[I];
             end;
          if M <> nil then
           M.Click;
@@ -539,25 +508,22 @@ begin
       }
 
       NIN_BALLOONSHOW:
-       begin
-        if Assigned(FOnBalloonHintShow) then
-         FOnBalloonHintShow(Self);
-       end;
+       if Assigned(Icon.FOnBalloonHintShow) then
+        Icon.FOnBalloonHintShow(Icon);
 
       NIN_BALLOONHIDE:
-       if Assigned(FOnBalloonHintHide) then
-        FOnBalloonHintHide(Self);
+       if Assigned(Icon.FOnBalloonHintHide) then
+        Icon.FOnBalloonHintHide(Icon);
 
       NIN_BALLOONTIMEOUT:
-       if Assigned(FOnBalloonHintTimeout) then
-        FOnBalloonHintTimeout(Self);
+       if Assigned(Icon.FOnBalloonHintTimeout) then
+        Icon.FOnBalloonHintTimeout(Icon);
 
       NIN_BALLOONUSERCLICK:
-       if Assigned(FOnBalloonHintClick) then
-        FOnBalloonHintClick(Self);
+       if Assigned(Icon.FOnBalloonHintClick) then
+        Icon.FOnBalloonHintClick(Icon);
 
-     end;
-    end;
+   end; // case
   end
 
  else // Messages that didn't go through the tray icon
@@ -566,9 +532,8 @@ begin
      shutdown. Msg.Result must not return 0, or the system will be unable
      to shut down. The same goes for other specific system messages. }
    WM_CLOSE, WM_QUIT, WM_DESTROY, WM_NCDESTROY:
-    begin
      Msg.Result := 1;
-    end;
+ 
    {
      WM_DESTROY:
      if not (csDesigning in ComponentState) then
@@ -578,34 +543,8 @@ begin
      end;
    }
    WM_QUERYENDSESSION, WM_ENDSESSION:
-    begin
      Msg.Result := 1;
-    end;
 
-{$IFDEF WINNT_SERVICE_HACK}
-   WM_USERCHANGED:
-    if WinNT then
-     begin
-      // Special handling for Win NT: Load/unload common controls library
-      if HComCtl32 = 0 then
-       begin
-        // Load and initialize common controls library
-        HComCtl32 := LoadLibrary('comctl32.dll');
-        { We load the entire dll. This is probably unnecessary.
-          The InitCommonControlsEx method may be more appropriate. }
-        InitComCtl32 := GetProcAddress(HComCtl32, 'InitCommonControls');
-        InitComCtl32;
-       end
-      else
-       begin
-        // Unload common controls library (if it is loaded)
-        if HComCtl32 <> $7FFFFFFF then
-         FreeLibrary(HComCtl32);
-        HComCtl32 := 0;
-       end;
-      Msg.Result := 1;
-     end;
-{$ENDIF}
   else // Handle all other messages with the default handler
    Msg.Result := DefWindowProc(FHandle, Msg.Msg, Msg.wParam, Msg.lParam);
   end;
@@ -630,6 +569,46 @@ begin
     if TrayIconHandler.RefCount = 0
     then FreeAndNil(TrayIconHandler);
   end;
+end;
+
+{ --------------- Icon registry (64-bit safe) --------------- }
+{ Shell_NotifyIcon.uID is always 32-bit UINT, so we cannot store a 64-bit
+  pointer there. Instead we assign sequential Cardinal IDs and keep a
+  registry list for reverse lookup. With 1-3 tray icons per app, the
+  linear scan is effectively O(1). }
+
+function RegisterCoolTrayIcon(Icon: TCoolTrayIcon): Cardinal;
+begin
+ Inc(NextIconID);
+ if IconRegistry = nil
+ then IconRegistry := TList.Create;
+ IconRegistry.Add(Icon);
+ EXIT(NextIconID);
+end;
+
+
+procedure UnregisterCoolTrayIcon(Icon: TCoolTrayIcon);
+begin
+ if IconRegistry <> nil then
+  begin
+   IconRegistry.Remove(Icon);
+   if IconRegistry.Count = 0
+   then FreeAndNil(IconRegistry);
+  end;
+end;
+
+
+function FindCoolTrayIcon(ID: WPARAM): TCoolTrayIcon;
+var
+ I: Integer;
+ IDCardinal: Cardinal;
+begin
+ IDCardinal := Cardinal(ID);
+ if IconRegistry <> nil then
+  for I := 0 to IconRegistry.Count - 1 do
+   if TCoolTrayIcon(IconRegistry[I]).FIconID = IDCardinal
+   then EXIT(TCoolTrayIcon(IconRegistry[I]));
+ EXIT(nil);
 end;
 
 { ------------- SimpleTimer event methods -------------- }
@@ -683,9 +662,7 @@ begin
  inherited Create(AOwner);
 
  AddTrayIcon; // Container management
-{$WARNINGS OFF}
- FIconID := Cardinal(Self); // Use Self object pointer as ID
-{$WARNINGS ON}
+ FIconID := RegisterCoolTrayIcon(Self); // 64-bit safe sequential ID
  SettingMDIForm := True;
  FEnabled := True; // Enabled by default
  FShowHint := True; // Show hint by default
@@ -756,6 +733,7 @@ begin
     if Owner is TWinControl
     then UnhookForm;
    end;
+  UnregisterCoolTrayIcon(Self);
   RemoveTrayIcon; // Container management
   inherited Destroy;
  end
@@ -793,9 +771,6 @@ begin
  SetCycleIcons(FCycleIcons);
  SetWantEnterExitEvents(FWantEnterExitEvents);
  SetBehavior(FBehavior);
-{$IFDEF WINNT_SERVICE_HACK}
- WinNT := IsWinNT;
-{$ENDIF}
 end;
 
 
@@ -1214,14 +1189,11 @@ begin
  HideBalloonHint;
 
  // Display new balloon hint
- with IconData do
-  begin
-   uFlags := uFlags or NIF_INFO;
-   StrLCopy(szInfo, PChar(Text), SizeOf(szInfo)-1);
-   StrLCopy(szInfoTitle, PChar(Title), SizeOf(szInfoTitle)-1);
-   TimeoutOrVersion.uTimeout := TimeoutSecs * 1000;
-   dwInfoFlags := aBalloonIconTypes[IconType];
-  end;
+ IconData.uFlags := IconData.uFlags or NIF_INFO;
+ StrLCopy(IconData.szInfo, PChar(Text), SizeOf(IconData.szInfo)-1);
+ StrLCopy(IconData.szInfoTitle, PChar(Title), SizeOf(IconData.szInfoTitle)-1);
+ IconData.TimeoutOrVersion.uTimeout := TimeoutSecs * 1000;
+ IconData.dwInfoFlags := aBalloonIconTypes[IconType];
 
  Result := ModifyIcon;
  // Remove NIF_INFO before next call to ModifyIcon (or the balloon hint will redisplay itself)
@@ -1230,44 +1202,17 @@ end;
 
 
 function TCoolTrayIcon.ShowBalloonHintUnicode(Title, Text: WideString; IconType: TBalloonHintIcon; TimeoutSecs: TBalloonHintTimeOut): Boolean;
-// Show balloon hint. Return false if error.
-CONST
- aBalloonIconTypes: array [TBalloonHintIcon] of Byte = (NIIF_NONE, NIIF_INFO, NIIF_WARNING, NIIF_ERROR, NIIF_USER);
-VAR I: Integer;
+// In Unicode Delphi, String is already UnicodeString. Delegate to ShowBalloonHint.
 begin
- // Remove old balloon hint
- HideBalloonHint;
-
- // Display new balloon hint
- with IconData do
-  begin
-   uFlags := uFlags or NIF_INFO;
-   FillChar(szInfo, 0, SizeOf(szInfo));
-    for I := 0 to SizeOf(szInfo)-1 do
-    szInfo[I] := Char(Text[I]);
-   szInfo[0] := #1;
-   FillChar(szInfoTitle, 0, SizeOf(szInfoTitle));
-    for I := 0 to SizeOf(szInfoTitle)-1 do
-    szInfoTitle[I] := Char(Title[I]);
-   szInfoTitle[0] := #1;
-   TimeoutOrVersion.uTimeout := TimeoutSecs * 1000;
-   dwInfoFlags := aBalloonIconTypes[IconType];
-  end;
-
- Result := ModifyIcon;
- // Remove NIF_INFO before next call to ModifyIcon (or the balloon hint will redisplay itself)
- IconData.uFlags := NIF_ICON or NIF_MESSAGE or NIF_TIP;
+ Result := ShowBalloonHint(String(Title), String(Text), IconType, TimeoutSecs);
 end;
 
 
 function TCoolTrayIcon.HideBalloonHint: Boolean;
 // Hide balloon hint. Return false if error.
 begin
- with IconData do
-  begin
-   uFlags := uFlags or NIF_INFO;
-   StrPCopy(szInfo, '');
-  end;
+ IconData.uFlags := IconData.uFlags or NIF_INFO;
+ StrPCopy(IconData.szInfo, '');
  Result := ModifyIcon;
 end;
 
@@ -1382,7 +1327,7 @@ begin
 end;
 
 
-function TCoolTrayIcon.SetFocus(): Boolean;
+function TCoolTrayIcon.SetFocus: Boolean;
 begin
  Result := Shell_NotifyIcon(NIM_SetFocus, @IconData);
 end;
@@ -1403,8 +1348,6 @@ begin
      Do this by calling SetForegroundWindow(Handle);
      We don't use Application.Handle as it will make the taskbar button visible in case the form/application is hidden. }
    SetForegroundWindow(Handle);
-   { Win98 (unlike other Windows versions) empties a popup menu before  closing it. This is a problem when the menu is about to display while it already is active (two click-events in succession). The menu will flicker annoyingly. Calling ProcessMessages fixes this. }
-   Application.ProcessMessages;
    // Now make the menu pop up
    FPopupMenu.PopupComponent := Self;
    FPopupMenu.Popup(X, Y);
@@ -1500,20 +1443,6 @@ begin
  IconVisible := True;
 end;
 
-
-{$IFDEF WINNT_SERVICE_HACK}
-function TCoolTrayIcon.IsWinNT: Boolean;
-var
- ovi: TOSVersionInfo;
- rc: Boolean;
-begin
- rc := False;
- ovi.dwOSVersionInfoSize := SizeOf(TOSVersionInfo);
- if GetVersionEx(ovi) then
-  rc := (ovi.dwPlatformId = VER_PLATFORM_WIN32_NT) and (ovi.dwMajorVersion <= 4);
- Result := rc;
-end;
-{$ENDIF}
 
 
 procedure TCoolTrayIcon.HideTaskbarIcon;
@@ -1614,7 +1543,7 @@ INITIALIZATION
     WM_TASKBARCREATED := RegisterWindowMessage('TaskbarCreated');
 
 finalization
- if Assigned(TrayIconHandler)
- then FreeAndNil(TrayIconHandler); // Destroy handler
+ FreeAndNil(IconRegistry);
+ FreeAndNil(TrayIconHandler);
 
 end.

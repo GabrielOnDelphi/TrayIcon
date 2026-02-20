@@ -16,7 +16,7 @@ unit TextTrayIcon;
 interface
 
 uses
-  CoolTrayIcon, Windows, System.Classes, Vcl.Graphics, Vcl.Controls;
+  CoolTrayIcon, Winapi.Windows, System.Classes, Vcl.Graphics, Vcl.Controls;
 
 type
   TOffsetOptions = class(TPersistent)
@@ -159,14 +159,10 @@ end;
 destructor TTextTrayIcon.Destroy;
 begin
   try
-     FreeAndNil( FFont );
-     FreeAndNil( FTextBitmap);
-     FreeAndNil( FOffsetOptions);
-    try
-      FreeAndNil(FBackgroundIcon);
-    except
-     // Do nothing; the background icon seems to be invalid
-    end;
+     FreeAndNil(FFont);
+     FreeAndNil(FTextBitmap);
+     FreeAndNil(FOffsetOptions);
+     FreeAndNil(FBackgroundIcon);
   finally
     inherited Destroy;
   end;
@@ -210,7 +206,7 @@ end;
 
 procedure TTextTrayIcon.SetTextBitmap(Value: TBitmap);
 begin
-  FTextBitmap := Value;      // Assign?
+  FTextBitmap.Assign(Value);
   Draw;
 end;
 
@@ -297,28 +293,29 @@ procedure TTextTrayIcon.TransparentBitmapToIcon(const Bitmap: TBitmap; const Ico
 var
   BitmapImageList: TImageList;
   Bmp: TBitmap;
-  FInvertColor: TColor;
+  InvertColor: TColor;
 begin
+  Bmp := nil;
   BitmapImageList := TImageList.CreateSize(16, 16);
   try
     BitmapImageList.AddIcon(FBackgroundIcon);
     Bmp := TBitmap.Create;
 
     if (FColor = clNone) or (FColor = FFont.Color)
-    then FInvertColor := ColorToRGB(FFont.Color) xor $00FFFFFF
-    else FInvertColor := MaskColor;
+    then InvertColor := ColorToRGB(FFont.Color) xor $00FFFFFF
+    else InvertColor := MaskColor;
 
-    Bmp.Canvas.Brush.Color := FInvertColor;
+    Bmp.Canvas.Brush.Color := InvertColor;
     BitmapImageList.GetBitmap(0, Bmp);
     Bitmap.Transparent := True;
     Bitmap.TransParentColor := FInvertTextColor;
     Bmp.Canvas.Draw(0, 0, Bitmap);
 
-    BitmapImageList.AddMasked(Bmp, FInvertColor);
+    BitmapImageList.AddMasked(Bmp, InvertColor);
     BitmapImageList.GetIcon(1, Icon);
-    FreeAndNil( Bmp);
   finally
-     FreeAndNil(BitmapImageList );
+    FreeAndNil(Bmp);
+    FreeAndNil(BitmapImageList);
   end;
 end;
 
