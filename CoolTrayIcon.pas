@@ -1,30 +1,18 @@
-{*****************************************************************}
-{ A component for placing icons in the notification area  of the Windows taskbar (aka. the traybar).                      }
-{                                                                 }
-{ The component is freeware. Feel free to use and improve it.     }
-{ Troels Jakobsen - troels.jakobsen@gmail.com Copyright (c) 2006  }
-{ Portions by Jouni Airaksinen - mintus@codefield.com             }
-{*****************************************************************}
-
 UNIT CoolTrayIcon;
-{ --------------------------------------------------------------------------------------------------
+{-------------------------------------------------------------------------------------------------------------
+    A component for placing icons in the notification area of the Windows systray/taskbar
+--------------------------------------------------------------------------------------------------------------
 
-	
-	Source:
-     https://github.com/coolshou/CoolTrayIcon
-
-
-
-    Code updates 01.2023
-    by GabrielMoraru.com
-
+    Code updated 01.2023
+    GabrielMoraru.com
        Brought up to date for Delphi 13
        Code cleanup
        Reformatting
        Safer code
-       Fixed some issue
+       Code works on 64 bit now
+       Fixed some bugs
        Added two extra functions
-	   Removed code for Win NT
+       Removed code for WinNT
        Better documentation about how to use the components
        Let user know if MainFormOnTaskbar is True.
 
@@ -32,9 +20,15 @@ UNIT CoolTrayIcon;
        1. It doesn work if Application.MainFormOnTaskbar= true. The requirement is to set MainFormOnTaskbar = false before Application.Run() is called.
        2. The TTrayIcon doesn't work properly if we call it during app start up. We can use a timer to check a bit later if the application needs to start minimized.
 
- --------------------------------------------------------------------------------------------------
+   Original code
+       This is a major rewrite of the original TCoolTrayIcon:
+         Troels Jakobsen - troels.jakobsen@gmail.com Copyright (c) 2006
+         Portions by Jouni Airaksinen - mintus@codefield.com
+         https://github.com/coolshou/CoolTrayIcon
 
-  Use it like this:
+--------------------------------------------------------------------------------------------------------------
+
+  How to use it:
 
     procedure TForm1.TrayIconClick(Sender: TObject);
     begin
@@ -46,51 +40,19 @@ UNIT CoolTrayIcon;
       TrayIcon.PutIconOnlyInTray;
     end;
 
-  -------------------------------------------------------------------------------------------------- }
+-------------------------------------------------------------------------------------------------------------}
 
 {$DebugInfo OFF}
 
 INTERFACE
 
 USES
-  Winapi.Windows, Winapi.Messages, Winapi.ShellApi,
-  SysUtils, Classes, Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Menus, Vcl.Dialogs, Vcl.ImgList,
-  SimpleTimer;
+  Winapi.Windows, Winapi.Messages, Winapi.ShellApi, System.SysUtils, System.Classes, Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Menus, Vcl.Dialogs, Vcl.ImgList, SimpleTimer;
 
 CONST
   WM_TRAYNOTIFY = WM_USER + 1024;    // User-defined message sent by the trayicon
 
 TYPE
-  TTimeoutOrVersion = record
-   case Integer of // 0: Before Win2000; 1: Win2000 and up
-    0: (uTimeout: UINT);
-    1: (uVersion: UINT); // Only used when sending a NIM_SETVERSION message
-  end;
-
-
- { You can use the TNotifyIconData record structure defined in shellapi.pas.
-   However, WinME, Win2000, and WinXP have expanded this structure, so in order to implement their new features we define a similar structure, TNotifyIconDataEx.
-
-  The old TNotifyIconData record contains a field called Wnd in Delphi and hWnd in C++ Builder. The compiler directive DFS_CPPB_3_UP was used
-    to distinguish between the two situations, but is no longer necessary when we define our own record, TNotifyIconDataEx. }
-
- TNotifyIconDataEx = record
-  cbSize: DWORD;
-  hWnd: hWnd;
-  uID: UINT;
-  uFlags: UINT;
-  uCallbackMessage: UINT;
-  hIcon: hIcon;
-  szTip: array [0 .. 127] of WideChar;
-  dwState: DWORD;
-  dwStateMask: DWORD;
-  szInfo: array [0 .. 255] of WideChar;
-  TimeoutOrVersion: TTimeoutOrVersion;
-  szInfoTitle: array [0 .. 63] of WideChar;
-  dwInfoFlags: DWORD;
- end;
-
-
  TBalloonHintIcon    = (bitNone, bitInfo, bitWarning, bitError, bitCustom);
  TBalloonHintTimeOut = 10 .. 60; // Windows defines 10-60 secs. as min-max
  TBehavior           = (bhWin95, bhWin2000);
@@ -167,7 +129,7 @@ TYPE
    procedure MouseExitTimerProc(Sender: TObject);
 
   protected
-   IconData: TNotifyIconDataEx; // Data of the tray icon wnd.
+   IconData: NOTIFYICONDATA; // Data of the tray icon wnd.
    procedure Loaded; override;
    function LoadDefaultIcon: Boolean; virtual;
    function ShowIcon: Boolean; virtual;
@@ -185,7 +147,7 @@ TYPE
    procedure Notification(AComponent: TComponent; Operation: TOperation); override;
 
   public
-   property Handle: hWnd read IconData.hWnd;
+   property Handle: HWND read IconData.Wnd;
    property Behavior: TBehavior read FBehavior write SetBehavior default bhWin95;
    constructor Create(AOwner: TComponent); override;
    destructor Destroy; override;
@@ -205,9 +167,8 @@ TYPE
    procedure ShowTaskbarIcon;
    procedure ShowMainForm;
    procedure HideMainForm;
-   procedure PutIconOnlyInTask;  // MINE !!!!!!
-   procedure PutIconOnlyInTray;  // MINE !!!!!!
-   //procedure DoMinimizeToTray;     // MINE !!!!!!
+   procedure PutIconOnlyInTask;     // NEW
+   procedure PutIconOnlyInTray;     // NEW
   published
    // Properties:
    property DesignPreview: Boolean read FDesignPreview write SetDesignPreview default False;
@@ -248,37 +209,7 @@ procedure Register;
 IMPLEMENTATION
 
 USES
-  Vcl.ComCtrls;
-
-CONST
- // Key select events (Space and Enter)
- NIN_SELECT    = WM_USER + 0;
- NINF_KEY      = 1;
- NIN_KEYSELECT = NINF_KEY or NIN_SELECT;
- // Events returned by balloon hint
- NIN_BALLOONSHOW      = WM_USER + 2;
- NIN_BALLOONHIDE      = WM_USER + 3;
- NIN_BALLOONTIMEOUT   = WM_USER + 4;
- NIN_BALLOONUSERCLICK = WM_USER + 5;
- // Constants used for balloon hint feature
- NIIF_NONE      = $00000000;
- NIIF_INFO      = $00000001;
- NIIF_WARNING   = $00000002;
- NIIF_ERROR     = $00000003;
- NIIF_USER      = $00000004;
- NIIF_ICON_MASK = $0000000F; // Reserved for WinXP
- NIIF_NOSOUND   = $00000010; // Reserved for WinXP
- // uFlags constants for TNotifyIconDataEx
- NIF_STATE = $00000008;
- NIF_INFO  = $00000010;
- NIF_GUID  = $00000020;
- // dwMessage constants for Shell_NotifyIcon
- NIM_SetFocus       = $00000003;
- NIM_SETVERSION     = $00000004;
- NOTIFYICON_VERSION = 3; // Used with the NIM_SETVERSION message
- // Tooltip constants
- TOOLTIPS_CLASS = 'tooltips_class32';
- TTS_NOPREFIX   = 2;
+  Vcl.ComCtrls, Winapi.CommCtrl;
 
 
 TYPE
@@ -300,7 +231,6 @@ VAR
  IconRegistry: TList = nil;      // Maps sequential IDs to TCoolTrayIcon instances
  NextIconID: Cardinal = 0;       // Sequential counter for 64-bit safe icon IDs
  WM_TASKBARCREATED: Cardinal;
- SHELL_VERSION: Integer;
 
 
 
@@ -343,12 +273,13 @@ end;
 
 { The message always goes through the container, TrayIconHandler.
   Msg.wParam contains the sequential ID of the TCoolTrayIcon instance.
-  We look it up via FindCoolTrayIcon. }
+  We look it up via FindCoolTrayIcon.
+
+  Note: The tray icon never receives WM_MOUSEWHEEL messages.   }
 
 procedure TTrayIconHandler.HandleIconMessage(var Msg: TMessage);
 
- function ShiftState: TShiftState;
- // Return the state of the shift, ctrl, and alt keys
+ function ShiftState: TShiftState; // Return the state of the shift, ctrl, and alt keys
  begin
   Result := [];
   if GetAsyncKeyState(VK_SHIFT)   < 0 then Include(Result, ssShift);
@@ -503,60 +434,40 @@ begin
           M.Click;
         end;
 
-      { The tray icon never receives WM_MOUSEWHEEL messages.
-        WM_MOUSEWHEEL: ;
-      }
-
       NIN_BALLOONSHOW:
-       if Assigned(Icon.FOnBalloonHintShow) then
-        Icon.FOnBalloonHintShow(Icon);
+       if Assigned(Icon.FOnBalloonHintShow) then Icon.FOnBalloonHintShow(Icon);
 
       NIN_BALLOONHIDE:
-       if Assigned(Icon.FOnBalloonHintHide) then
-        Icon.FOnBalloonHintHide(Icon);
+       if Assigned(Icon.FOnBalloonHintHide) then Icon.FOnBalloonHintHide(Icon);
 
       NIN_BALLOONTIMEOUT:
-       if Assigned(Icon.FOnBalloonHintTimeout) then
-        Icon.FOnBalloonHintTimeout(Icon);
+       if Assigned(Icon.FOnBalloonHintTimeout) then Icon.FOnBalloonHintTimeout(Icon);
 
       NIN_BALLOONUSERCLICK:
-       if Assigned(Icon.FOnBalloonHintClick) then
-        Icon.FOnBalloonHintClick(Icon);
+       if Assigned(Icon.FOnBalloonHintClick) then Icon.FOnBalloonHintClick(Icon);
 
-   end; // case
+   end;
   end
 
  else // Messages that didn't go through the tray icon
-  case Msg.Msg of
-   { Windows sends us a WM_QUERYENDSESSION message when it prepares for
-     shutdown. Msg.Result must not return 0, or the system will be unable
-     to shut down. The same goes for other specific system messages. }
-   WM_CLOSE, WM_QUIT, WM_DESTROY, WM_NCDESTROY:
-     Msg.Result := 1;
- 
-   {
-     WM_DESTROY:
-     if not (csDesigning in ComponentState) then
-     begin
-     Msg.Result := 0;
-     PostQuitMessage(0);
-     end;
-   }
-   WM_QUERYENDSESSION, WM_ENDSESSION:
-     Msg.Result := 1;
+   case Msg.Msg of
+    { Windows sends us a WM_QUERYENDSESSION message when it prepares for shutdown. Msg.Result must not return 0, or the system will be unable to shut down. The same goes for other specific system messages. }
+    WM_CLOSE, WM_QUIT,
+    WM_DESTROY, WM_NCDESTROY: Msg.Result := 1;
+    WM_QUERYENDSESSION,
+    WM_ENDSESSION: Msg.Result := 1;
 
-  else // Handle all other messages with the default handler
-   Msg.Result := DefWindowProc(FHandle, Msg.Msg, Msg.wParam, Msg.lParam);
-  end;
+   else // Handle all other messages with the default handler
+     Msg.Result := DefWindowProc(FHandle, Msg.Msg, Msg.wParam, Msg.lParam);
+   end;
 end;
 
 { ---------------- Container management ---------------- }
 
 procedure AddTrayIcon;
 begin
- if not Assigned(TrayIconHandler) then
-  // Create new handler
-  TrayIconHandler := TTrayIconHandler.Create;
+ if not Assigned(TrayIconHandler)
+ then TrayIconHandler := TTrayIconHandler.Create;    // Create new handler
  TrayIconHandler.Add;
 end;
 
@@ -591,9 +502,9 @@ procedure UnregisterCoolTrayIcon(Icon: TCoolTrayIcon);
 begin
  if IconRegistry <> nil then
   begin
-   IconRegistry.Remove(Icon);
-   if IconRegistry.Count = 0
-   then FreeAndNil(IconRegistry);
+    IconRegistry.Remove(Icon);
+    if IconRegistry.Count = 0
+    then FreeAndNil(IconRegistry);
   end;
 end;
 
@@ -619,8 +530,8 @@ begin
  if NOT IsDblClick then
   if FClickReady then
    begin
-    FClickReady := False;
-    Click;
+     FClickReady := False;
+     Click;
    end;
  IsDblClick := False;
 end;
@@ -630,13 +541,13 @@ procedure TCoolTrayIcon.CycleTimerProc(Sender: TObject);
 begin
  if Assigned(FIconList) then
   begin
-   FIconList.GetIcon(FIconIndex, FIcon);
-   // IconChanged(AOwner);
-   CycleIcon; // Call event method
+    FIconList.GetIcon(FIconIndex, FIcon);
+    // IconChanged(AOwner);
+    CycleIcon; // Call event method
 
-   if FIconIndex < FIconList.Count - 1
-   then SetIconIndex(FIconIndex + 1)
-   else SetIconIndex(0);
+    if FIconIndex < FIconList.Count - 1
+    then SetIconIndex(FIconIndex + 1)
+    else SetIconIndex(0);
   end;
 end;
 
@@ -647,11 +558,10 @@ var
 begin
  if FDidExit then Exit;
  GetCursorPos(Pt);
- if (Pt.X < LastMoveX) or (Pt.Y < LastMoveY) or 
-    (Pt.X > LastMoveX) or (Pt.Y > LastMoveY) then
+ if (Pt.X <> LastMoveX) or (Pt.Y <> LastMoveY) then
   begin
-   FDidExit := True;
-   MouseExit;
+    FDidExit := True;
+    MouseExit;
   end;
 end;
 
@@ -664,21 +574,21 @@ begin
  AddTrayIcon; // Container management
  FIconID := RegisterCoolTrayIcon(Self); // 64-bit safe sequential ID
  SettingMDIForm := True;
- FEnabled := True; // Enabled by default
+ FEnabled  := True; // Enabled by default
  FShowHint := True; // Show hint by default
  SettingPreview := False;
 
  FIcon := TIcon.Create;
  FIcon.OnChange := IconChanged;
  FillChar(IconData, SizeOf(IconData), 0);
- IconData.cbSize := SizeOf(TNotifyIconDataEx);
- { IconData.hWnd points to procedure to receive callback messages from the icon. We set it to our TrayIconHandler instance. }
- IconData.hWnd := TrayIconHandler.FHandle;
+ IconData.cbSize := SizeOf(NOTIFYICONDATA);
+ { IconData.Wnd points to procedure to receive callback messages from the icon. We set it to our TrayIconHandler instance. }
+ IconData.Wnd := TrayIconHandler.FHandle;
  // Add an id for the tray icon
  IconData.uID := FIconID;
  // We want icon, message handling, and tooltips by default
  IconData.uFlags := NIF_ICON or NIF_MESSAGE or NIF_TIP;
- // Message to send to IconData.hWnd when event occurs
+ // Message to send to IconData.Wnd when event occurs
  IconData.uCallbackMessage := WM_TRAYNOTIFY;
 
  // Create SimpleTimers for later use
@@ -695,19 +605,15 @@ begin
  // Set hook(s)
  if not(csDesigning in ComponentState) then
   begin
-   { For MinimizeToTray to work, we need to know when the form is minimized
-     (happens when either the application or the main form minimizes).
-     The straight-forward way is to make TCoolTrayIcon trap the
-     Application.OnMinimize event. However, if you also make use of this
-     event in the application, the OnMinimize code used by TCoolTrayIcon is discarded.
-     The solution is to hook into the app.'s message handling (via HookAppProc).
-     You can then catch any message that goes through the app. and still use the OnMinimize event. }
-   Application.HookMainWindow(HookAppProc);
-   { You can hook into the main form (or any other window), allowing you to handle
-     any message that window processes. This is necessary in order to properly
-     handle when the user minimizes the form using the TASKBAR icon. }
-   if Owner is TWinControl then
-    HookForm;
+    { For MinimizeToTray to work, we need to know when the form is minimized
+      (happens when either the application or the main form minimizes).
+      The straight-forward way is to make TCoolTrayIcon trap the Application.OnMinimize event. However, if you also make use of this event in the application, the OnMinimize code used by TCoolTrayIcon is discarded.
+      The solution is to hook into the app.'s message handling (via HookAppProc).
+      You can then catch any message that goes through the app. and still use the OnMinimize event. }
+    Application.HookMainWindow(HookAppProc);
+    { You can hook into the main form (or any other window), allowing you to handle any message that window processes. This is necessary in order to properly handle when the user minimizes the form using the TASKBAR icon. }
+    if Owner is TWinControl
+    then HookForm;
   end;
 end;
 
@@ -720,18 +626,14 @@ begin
     FreeAndNil(CycleTimer);
     FreeAndNil(ClickTimer);
     FreeAndNil(ExitTimer);
-   // try
-      FreeAndNil(FIcon);
-   // except
-      // Do nothing; the icon seems to be invalid
-   // end;
+    FreeAndNil(FIcon);
  finally
   // It is important to unhook any hooked processes
   if not(csDesigning in ComponentState) then
    begin
-    Application.UnhookMainWindow(HookAppProc);
-    if Owner is TWinControl
-    then UnhookForm;
+     Application.UnhookMainWindow(HookAppProc);
+     if Owner is TWinControl
+     then UnhookForm;
    end;
   UnregisterCoolTrayIcon(Self);
   RemoveTrayIcon; // Container management
@@ -754,8 +656,8 @@ begin
   if not(csDesigning in ComponentState) then
    begin
     Show := True;
-    if Assigned(FOnStartup) then
-     FOnStartup(Self, Show);
+    if Assigned(FOnStartup)
+    then FOnStartup(Self, Show);
 
     if not Show then
      begin
@@ -775,8 +677,7 @@ end;
 
 
 function TCoolTrayIcon.LoadDefaultIcon: Boolean;
-{ This method is called to determine whether to assign a default icon to
-  the component. Descendant classes (like TextTrayIcon) can override the method to change this behavior. }
+{ This method is called to determine whether to assign a default icon to the component. Descendant classes (like TextTrayIcon) can override the method to change this behavior. }
 begin
  Result := True;
 end;
@@ -786,23 +687,17 @@ procedure TCoolTrayIcon.Notification(AComponent: TComponent; Operation: TOperati
 begin
  inherited Notification(AComponent, Operation);
  // Check if either the imagelist or the popup menu is about to be deleted
- if (AComponent = IconList) and (Operation = opRemove) then
-  begin
-   FIconList := nil;
-   IconList := nil;
-  end;
+ if (AComponent = FIconList) and (Operation = opRemove) then
+    FIconList := nil;
 
- if (AComponent = PopupMenu) and (Operation = opRemove) then
-  begin
-   FPopupMenu := nil;
-   PopupMenu := nil;
-  end;
+ if (AComponent = FPopupMenu) and (Operation = opRemove) then
+    FPopupMenu := nil;
 end;
 
 
 procedure TCoolTrayIcon.IconChanged(Sender: TObject);
 begin
- ModifyIcon;
+  ModifyIcon;
 end;
 
 
@@ -811,8 +706,7 @@ end;
 
 function TCoolTrayIcon.HookAppProc(var Msg: TMessage): Boolean;
 var
- Show: Boolean;
- // HideForm: Boolean;
+  Show: Boolean;
 begin
  Result := False; // Should always be False unless we don't want the default message handling
 
@@ -852,9 +746,10 @@ begin
   WM_SYSCOMMAND:
    // Handle MinimizeToTray by capturing minimize event of application
    if Msg.wParam = SC_RESTORE then
+    if Application.MainForm <> nil then
     begin
-     if Application.MainForm.WindowState = wsMinimized then
-      Application.MainForm.WindowState := wsNormal;
+     if Application.MainForm.WindowState = wsMinimized
+     then Application.MainForm.WindowState := wsNormal;
      Application.MainForm.Visible := True;
     end;
  end;
@@ -889,6 +784,7 @@ begin
  OldWndProc := nil;
 end;
 
+
 { All main form messages pass through HookFormProc. You can override the
   messages by not passing them along to Windows (via CallWindowProc).
   You should be careful with the graphical messages, though. }
@@ -910,21 +806,6 @@ procedure TCoolTrayIcon.HookFormProc(var Msg: TMessage);
 
 begin
  case Msg.Msg of
-  (*
-    WM_PARENTNOTIFY: begin
-    if Msg.WParamLo = WM_CREATE then
-    if not HasCheckedShowMainFormOnStartup then
-    begin
-    HasCheckedShowMainFormOnStartup := True;
-    if not ShowMainFormOnStartup then
-    if Application.MainForm <> nil then
-     begin
-      Application.ShowMainForm := False;
-      HideMainForm;
-     end;
-    end;
-    end;
-  *)
 
   WM_SHOWWINDOW:
    begin
@@ -946,30 +827,12 @@ begin
       end;
 
    end;
-  (*
-    WM_WINDOWPOSCHANGING: begin
-    HideMainForm;
-    //      Exit;
-    end;
-  *)
 
   WM_SYSCOMMAND:
    // Handle MinimizeToTray by capturing minimize event of form
    if Msg.wParam = SC_MINIMIZE then
     if DoMinimizeEvents then
      Exit; // Don't pass the message on
-  {
-    This condition was intended to solve the "Windows can't shut down" issue.
-    Unfortunately, setting FormStyle or BorderStyle recreates the form, which
-    means it receives a WM_DESTROY and WM_NCDESTROY message. Since these are
-    not passed on the form simply disappears when setting either property.
-    Anyway, if these messages need to be handled (?) they should probably
-    be handled at application level, rather than form level.
-
-    WM_DESTROY, WM_NCDESTROY: begin
-    Msg.Result := 1;
-    Exit;
-    end; }
  end;
 
  // Pass the message on
@@ -979,75 +842,75 @@ end;
 
 procedure TCoolTrayIcon.SetIcon(Value: TIcon);
 begin
- FIcon.OnChange := nil;
- FIcon.Assign(Value);
- FIcon.OnChange := IconChanged;
- ModifyIcon;
+  FIcon.OnChange := nil;
+  FIcon.Assign(Value);
+  FIcon.OnChange := IconChanged;
+  ModifyIcon;
 end;
 
 
 procedure TCoolTrayIcon.SetIconVisible(Value: Boolean);
 begin
- if Value
- then ShowIcon
- else HideIcon;
+  if Value
+  then ShowIcon
+  else HideIcon;
 end;
 
 
 procedure TCoolTrayIcon.SetDesignPreview(Value: Boolean);
 begin
- FDesignPreview := Value;
- SettingPreview := True; // Raise flag
- { Assign a default icon if Icon property is empty. This will assign an icon
-   to the component when it is created for the very first time. When the user
-   assigns another icon it will not be overwritten next time the project loads.
-   HOWEVER, if the user has decided explicitly to have no icon a default icon
-   will be inserted regardless. I figured this was a tolerable price to pay. }
- if (csDesigning in ComponentState) then
-  begin
-   if FIcon.Handle = 0 then
-    if LoadDefaultIcon then
-     FIcon.Handle := LoadIcon(0, IDI_WINLOGO);
-   { It is tempting to assign the application's icon (Application.Icon) as a
-     default icon. The problem is there's no Application instance at design time.
-     Or is there? Yes there is: the Delphi editor! Application.Icon is the icon found in delphi32.exe. How to use:
-     FIcon.Assign(Application.Icon);
-     Seems to work, but I don't recommend it. Why would you want to, anyway? }
-   SetIconVisible(Value);
-  end;
- SettingPreview := False; // Clear flag
+  FDesignPreview := Value;
+  SettingPreview := True; // Raise flag
+  { Assign a default icon if Icon property is empty. This will assign an icon
+    to the component when it is created for the very first time. When the user
+    assigns another icon it will not be overwritten next time the project loads.
+    HOWEVER, if the user has decided explicitly to have no icon a default icon
+    will be inserted regardless. I figured this was a tolerable price to pay. }
+  if (csDesigning in ComponentState) then
+   begin
+    if FIcon.Handle = 0 then
+     if LoadDefaultIcon then
+      FIcon.Handle := LoadIcon(0, IDI_WINLOGO);
+    { It is tempting to assign the application's icon (Application.Icon) as a
+      default icon. The problem is there's no Application instance at design time.
+      Or is there? Yes there is: the Delphi editor! Application.Icon is the icon found in delphi32.exe. How to use:
+      FIcon.Assign(Application.Icon);
+      Seems to work, but I don't recommend it. Why would you want to, anyway? }
+    SetIconVisible(Value);
+   end;
+  SettingPreview := False; // Clear flag
 end;
 
 
 procedure TCoolTrayIcon.SetCycleIcons(Value: Boolean);
 begin
- FCycleIcons := Value;
- if Value
- then
-   begin
-    SetIconIndex(0);
-    CycleTimer.Interval := FCycleInterval;
-    CycleTimer.Enabled := True;
-   end
- else
-  CycleTimer.Enabled := False;
+  FCycleIcons := Value;
+  if Value
+  then
+    begin
+     SetIconIndex(0);
+     CycleTimer.Interval := FCycleInterval;
+     CycleTimer.Enabled := True;
+    end
+  else
+    CycleTimer.Enabled := False;
 end;
 
 
 procedure TCoolTrayIcon.SetCycleInterval(Value: Cardinal);
 begin
- if Value <> FCycleInterval then
-  begin
-   FCycleInterval := Value;
-   SetCycleIcons(FCycleIcons);
-  end;
+  if Value <> FCycleInterval then
+   begin
+     FCycleInterval := Value;
+     SetCycleIcons(FCycleIcons);
+   end;
 end;
 
 
 procedure TCoolTrayIcon.SetIconList(Value: TCustomImageList);
 begin
- FIconList := Value;
- SetIconIndex(0);
+  FIconList := Value;
+  SetIconIndex(0);
 end;
 
 
@@ -1070,67 +933,63 @@ end;
 
 procedure TCoolTrayIcon.SetHint(Value: THintString);
 begin
- FHint := Value;
- ModifyIcon;
+  FHint := Value;
+  ModifyIcon;
 end;
 
 
 procedure TCoolTrayIcon.SetShowHint(Value: Boolean);
 begin
- FShowHint := Value;
- ModifyIcon;
+  FShowHint := Value;
+  ModifyIcon;
 end;
 
 
 procedure TCoolTrayIcon.SetWantEnterExitEvents(Value: Boolean);
 begin
- FWantEnterExitEvents := Value;
- ExitTimer.Enabled := Value;
+  FWantEnterExitEvents := Value;
+  ExitTimer.Enabled := Value;
 end;
 
 
 procedure TCoolTrayIcon.SetBehavior(Value: TBehavior);
 begin
- FBehavior := Value;
- case FBehavior of
-  bhWin95: IconData.TimeoutOrVersion.uVersion := 0;
-  bhWin2000: IconData.TimeoutOrVersion.uVersion := NOTIFYICON_VERSION;
- end;
- Shell_NotifyIcon(NIM_SETVERSION, @IconData);
+  FBehavior := Value;
+  case FBehavior of
+    bhWin95: IconData.uVersion := 0;
+    bhWin2000: IconData.uVersion := NOTIFYICON_VERSION;
+  end;
+  Shell_NotifyIcon(NIM_SETVERSION, @IconData);
 end;
 
 
 function TCoolTrayIcon.InitIcon: Boolean;
 // Set icon and tooltip
-var
-  ok: Boolean;
+VAR  ok: Boolean;
 begin
- Result := False;
- ok := True;
- if (csDesigning in ComponentState)
- then ok := (SettingPreview or FDesignPreview);
+  Result := False;
+  ok := True;
+  if (csDesigning in ComponentState)
+  then ok := (SettingPreview or FDesignPreview);
 
- if ok then
-  begin
-   try
-    IconData.hIcon := FIcon.Handle;
-   except
-    on EReadError do // Seems the icon was destroyed
-      IconData.hIcon := 0;
+  if ok then
+   begin
+    if FIcon.Empty
+    then IconData.hIcon := 0
+    else IconData.hIcon := FIcon.Handle;
+
+    if (FHint <> '') and (FShowHint) then
+     begin
+       StrPLCopy(IconData.szTip, FHint, Length(IconData.szTip) - 1);
+       if Length(FHint) > 0
+       then IconData.uFlags := IconData.uFlags or NIF_TIP
+       else IconData.uFlags := IconData.uFlags and not NIF_TIP;
+     end
+    else
+     IconData.szTip := '';
+
+    Result := True;
    end;
-
-   if (FHint <> '') and (FShowHint) then
-    begin
-      StrPLCopy(IconData.szTip, FHint, Length(IconData.szTip) - 1);
-      if Length(FHint) > 0
-      then IconData.uFlags := IconData.uFlags or NIF_TIP
-      else IconData.uFlags := IconData.uFlags and not NIF_TIP;
-    end
-   else
-    IconData.szTip := '';
-
-   Result := True;
-  end;
 end;
 
 
@@ -1161,10 +1020,10 @@ begin
 
   if (csDesigning in ComponentState)
   then
-     if SettingPreview
-     AND InitIcon
-     then Result := Shell_NotifyIcon(NIM_DELETE, @IconData)
-     else
+   begin
+     if SettingPreview AND InitIcon
+     then Result := Shell_NotifyIcon(NIM_DELETE, @IconData);
+   end
   else
     if InitIcon
     then Result := Shell_NotifyIcon(NIM_DELETE, @IconData);
@@ -1190,9 +1049,9 @@ begin
 
  // Display new balloon hint
  IconData.uFlags := IconData.uFlags or NIF_INFO;
- StrLCopy(IconData.szInfo, PChar(Text), SizeOf(IconData.szInfo)-1);
- StrLCopy(IconData.szInfoTitle, PChar(Title), SizeOf(IconData.szInfoTitle)-1);
- IconData.TimeoutOrVersion.uTimeout := TimeoutSecs * 1000;
+ StrLCopy(IconData.szInfo, PChar(Text), High(IconData.szInfo));
+ StrLCopy(IconData.szInfoTitle, PChar(Title), High(IconData.szInfoTitle));
+ IconData.uTimeout := TimeoutSecs * 1000;
  IconData.dwInfoFlags := aBalloonIconTypes[IconType];
 
  Result := ModifyIcon;
@@ -1239,9 +1098,9 @@ function TCoolTrayIcon.GetClientIconPos(X, Y: Integer): TPoint;
 const
  IconBorder = 1;
 var
- H: hWnd;
- P: TPoint;
- IconSize: Integer;
+  H: hWnd;
+  P: TPoint;
+  IconSize: Integer;
 begin
  { The CoolTrayIcon.Handle property is not the window handle of the tray icon.
    We can find the window handle via WindowFromPoint when the mouse is over the tray icon. (It can probably be found via GetWindowLong_ptr as well).
@@ -1255,8 +1114,7 @@ begin
  P.X := X;
  P.Y := Y;
  H := WindowFromPoint(P);
- { Convert current cursor X,Y coordinates to tray client coordinates.
-   Add borders to tray icon size in the calculations. }
+ { Convert current cursor X,Y coordinates to tray client coordinates. Add borders to tray icon size in the calculations. }
  WinApi.Windows.ScreenToClient(H, P);
  P.X := (P.X mod ((IconBorder * 2) + IconSize)) - 1;
  P.Y := (P.Y mod ((IconBorder * 2) + IconSize)) - 1;
@@ -1329,7 +1187,7 @@ end;
 
 function TCoolTrayIcon.SetFocus: Boolean;
 begin
- Result := Shell_NotifyIcon(NIM_SetFocus, @IconData);
+ Result := Shell_NotifyIcon(NIM_SETFOCUS, @IconData);
 end;
 
 
@@ -1425,11 +1283,9 @@ procedure TCoolTrayIcon.CycleIcon;
 var
  NextIconIndex: Integer;
 begin
- NextIconIndex := 0;
- if FIconList <> nil
- then
-  if FIconIndex < FIconList.Count
-  then  NextIconIndex := FIconIndex + 1;
+ if (FIconList <> nil) and (FIconIndex < FIconList.Count - 1)
+ then NextIconIndex := FIconIndex + 1
+ else NextIconIndex := 0;
 
  if Assigned(FOnCycle) then
   FOnCycle(Self, NextIconIndex);
@@ -1509,8 +1365,7 @@ end;
 // MINE !!!
 procedure TCoolTrayIcon.PutIconOnlyInTray;
 begin
- if Application.MainFormOnTaskbar= TRUE
- then ShowMessage('MainFormOnTaskbar must be false otherwise PutIconOnlyInTray won''t work!');
+ Assert(NOT Application.MainFormOnTaskbar, 'MainFormOnTaskbar must be false otherwise PutIconOnlyInTray won''t work!');
 
  //HideTaskbarIcon;
  ShowWindow(Application.Handle, SW_HIDE);
@@ -1518,14 +1373,6 @@ begin
  IconVisible := True;
  Application.ShowMainForm := False;
 end;
-
-{del mine
-procedure TCoolTrayIcon.MinimizeToTray;
-begin
-  Application.Minimize;
-  PutIconOnlyInTray;  // SYS TRAY ICON. Put the correct icon in systray
-end  }
-
 
 
 
@@ -1538,8 +1385,7 @@ end;
 
 
 INITIALIZATION
- SHELL_VERSION := GetComCtlVersion; // Get shell version
- if SHELL_VERSION >= ComCtlVersionIE4 then // Use the TaskbarCreated message available from Win98/IE4+
+ if GetComCtlVersion >= ComCtlVersionIE4 then
     WM_TASKBARCREATED := RegisterWindowMessage('TaskbarCreated');
 
 finalization

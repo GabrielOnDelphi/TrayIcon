@@ -1,15 +1,13 @@
 unit TextTrayIcon;
 
 {-------------------------------------------------------------------------------------------------------------
- This is a component for placing icons in the notification area  of the Windows taskbar (aka. the traybar).
- It is an expanded version of my CoolTrayIcon component, which you will need to make this work.
- The expanded features allow you to easily draw text in the tray icon.
+ A component for placing icons in the notification area  of the Windows taskbar (aka. the traybar).
+ Allows you to easily draw text in the tray icon.
+ 
  The component is freeware. Troels Jakobsen - troels.jakobsen@gmail.com - Copyright 2006.  Portions by Jouni Airaksinen - mintus@codefield.com
 
- Code updates 01.2024
+ Code updates 02.2026
  GabrielMoraru.com
-
- See CoolTrayIcon.pas for more info
 -------------------------------------------------------------------------------------------------------------}
 
 
