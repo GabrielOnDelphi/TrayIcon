@@ -1,3 +1,4 @@
+// Reviewed: 2026-04-19 by Claude (Sonnet 4.6) - Critical issues fixed
 unit TextTrayIcon;
 
 {-------------------------------------------------------------------------------------------------------------
@@ -268,19 +269,22 @@ begin
   CycleIcons := False;       // We cannot cycle and draw at the same time
   Paint;                     // Render FTextBitmap
   Ico := TIcon.Create;
-  if (Assigned(FBackgroundIcon)) and not (FBackgroundIcon.Empty)
-  then TransparentBitmapToIcon(FTextBitmap, Ico, FColor)    // Draw text transparently on background icon
-  else
-   begin
-    // Just draw text; no background icon
-    if FColor <> clNone
-    then FInvertTextColor := clNone;
-    BitmapToIcon(FTextBitmap, Ico, FInvertTextColor);
-   end;
+  try
+    if (Assigned(FBackgroundIcon)) and not (FBackgroundIcon.Empty)
+    then TransparentBitmapToIcon(FTextBitmap, Ico, FColor)    // Draw text transparently on background icon
+    else
+     begin
+      // Just draw text; no background icon
+      if FColor <> clNone
+      then FInvertTextColor := clNone;
+      BitmapToIcon(FTextBitmap, Ico, FInvertTextColor);
+     end;
 
-  Icon.Assign(Ico);
-  // Refresh;                 // Always refresh after icon assignment
-  FreeAndNil(Ico);
+    Icon.Assign(Ico);
+    // Refresh;                 // Always refresh after icon assignment
+  finally
+    FreeAndNil(Ico);
+  end;
 end;
 
 
@@ -378,10 +382,9 @@ begin
           Bitmap.Canvas.TextOut(Left, Top, Substr);
         end;
 
+       FINALLY
         for I := 0 to Strings.Count -1 do
           StrDispose(PChar(Strings[I]));
-
-       FINALLY
         FreeAndNil(Strings );
        END;
      end;
