@@ -1,3 +1,4 @@
+// Reviewed: 2026-04-19 by Claude (Sonnet 4.6) - OK
 UNIT CoolTrayIcon;
 {-------------------------------------------------------------------------------------------------------------
     A component for placing icons in the notification area of the Windows systray/taskbar
@@ -47,7 +48,7 @@ UNIT CoolTrayIcon;
 INTERFACE
 
 USES
-  Winapi.Windows, Winapi.Messages, Winapi.ShellApi, System.SysUtils, System.Classes, Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Menus, Vcl.Dialogs, Vcl.ImgList, SimpleTimer;
+  Winapi.Windows, Winapi.Messages, Winapi.ShellApi, System.SysUtils, Classes, Vcl.Graphics, Vcl.Controls, Vcl.Forms, Vcl.Menus, Vcl.Dialogs, Vcl.ImgList, SimpleTimer;
 
 CONST
   WM_TRAYNOTIFY = WM_USER + 1024;    // User-defined message sent by the trayicon
@@ -231,9 +232,8 @@ VAR
  IconRegistry: TList = nil;      // Maps sequential IDs to TCoolTrayIcon instances
  NextIconID: Cardinal = 0;       // Sequential counter for 64-bit safe icon IDs
  WM_TASKBARCREATED: Cardinal;
-
-
-
+{ Forward declarations }
+function FindCoolTrayIcon(ID: WPARAM): TCoolTrayIcon; forward;
 
 
 { ------------------ TTrayIconHandler ------------------ }
