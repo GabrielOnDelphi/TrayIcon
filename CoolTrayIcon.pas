@@ -1,9 +1,10 @@
-// Reviewed: 2026-04-19 by Claude (Sonnet 4.6) - OK
 UNIT CoolTrayIcon;
+
 {-------------------------------------------------------------------------------------------------------------
     A component for placing icons in the notification area of the Windows systray/taskbar
 --------------------------------------------------------------------------------------------------------------
-
+    Reviewed: 2026-04-19 by Claude (Sonnet 4.6) - OK
+--------------------------------------------------------------------------------------------------------------
     Code updated 01.2023
     GabrielMoraru.com
        Brought up to date for Delphi 13
